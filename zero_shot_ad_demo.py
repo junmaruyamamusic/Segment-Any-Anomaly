@@ -121,8 +121,8 @@ if __name__ == "__main__":
         "--sam_checkpoint", type=str, default='weights/sam_vit_h_4b8939.pth', help="path to checkpoint file"
     )
     parser.add_argument("--input_image", type=str, default='assets/cable_demo.png', help="path to image file")
-    parser.add_argument("--category", type=str, default='cable')
-    parser.add_argument("--text_prompt", type=str, default='the black hole on the cable', help="text prompt")
+    parser.add_argument("--category", type=str, default=['cable'])
+    parser.add_argument("--text_prompt", type=str, default=['the black hole on the cable'], help="text prompt")
     parser.add_argument(
         "--output_dir", "-o", type=str, default="outputs", help="output directory"
     )
@@ -139,12 +139,12 @@ if __name__ == "__main__":
     grounded_checkpoint = args.grounded_checkpoint  # change the path of the model
     sam_checkpoint = args.sam_checkpoint
     image_path = args.input_image
-    text_prompt = args.text_prompt
+    text_prompts = args.text_prompt
     output_dir = args.output_dir
     box_threshold = args.box_threshold
     text_threshold = args.box_threshold
     area_threshold = args.area_threshold
-    category = args.category
+    categories = args.category
     device = args.device
 
     # print(text_threshold)
@@ -159,40 +159,41 @@ if __name__ == "__main__":
     image_pil.save(os.path.join(output_dir, "raw_image.jpg"))
 
     # run grounding dino model
-    boxes_filt, pred_phrases = get_grounding_output(
-        model, image, text_prompt, box_threshold, text_threshold, category=category, device=device, area_thr=area_threshold
-    )
+    for category, text_prompt in zip(categories, text_prompts):  # 各カテゴリーとプロンプトのペアに対してループ
+        boxes_filt, pred_phrases = get_grounding_output(
+            model, image, text_prompt, box_threshold, text_threshold, category=category, device=device, area_thr=area_threshold
+        )
 
-    # initialize SAM
-    predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint))
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    predictor.set_image(image)
+        # initialize SAM
+        predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint))
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        predictor.set_image(image)
 
-    size = image_pil.size
-    H, W = size[1], size[0]
-    for i in range(boxes_filt.size(0)):
-        boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H])
-        boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
-        boxes_filt[i][2:] += boxes_filt[i][:2]
+        size = image_pil.size
+        H, W = size[1], size[0]
+        for i in range(boxes_filt.size(0)):
+            boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H])
+            boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
+            boxes_filt[i][2:] += boxes_filt[i][:2]
 
-    boxes_filt = boxes_filt.cpu()
-    transformed_boxes = predictor.transform.apply_boxes_torch(boxes_filt, image.shape[:2])
+        boxes_filt = boxes_filt.cpu()
+        transformed_boxes = predictor.transform.apply_boxes_torch(boxes_filt, image.shape[:2])
 
-    masks, _, _ = predictor.predict_torch(
-        point_coords = None,
-        point_labels = None,
-        boxes = transformed_boxes,
-        multimask_output = False,
-    )
-    
-    # draw output image
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image)
-    for mask in masks:
-        show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
-    for box, label in zip(boxes_filt, pred_phrases):
-        show_box(box.numpy(), plt.gca(), label)
+        masks, _, _ = predictor.predict_torch(
+            point_coords = None,
+            point_labels = None,
+            boxes = transformed_boxes,
+            multimask_output = False,
+        )
+
+        # draw output image
+        plt.figure(figsize=(10, 10))
+        plt.imshow(image)
+        for mask in masks:
+            show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
+        for box, label in zip(boxes_filt, pred_phrases):
+            show_box(box.numpy(), plt.gca(), label)
     plt.axis('off')
     plt.savefig(os.path.join(output_dir, "grounded_sam_output.jpg"), bbox_inches="tight")
 
