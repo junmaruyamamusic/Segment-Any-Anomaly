@@ -120,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sam_checkpoint", type=str, default='weights/sam_vit_h_4b8939.pth', help="path to checkpoint file"
     )
-    parser.add_argument("--input_image", type=str, default='assets/cable_demo.png', help="path to image file")
+    parser.add_argument("--input_image", type=str, nargs='+', default=['cable.jpg'], help="input images")  # 複数の画像を受け取るように修正
     parser.add_argument("--category", type=str, default=['cable'])
     parser.add_argument("--text_prompt", type=str, default=['the black hole on the cable'], help="text prompt")
     parser.add_argument(
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     config_file = args.config  # change the path of the model config file
     grounded_checkpoint = args.grounded_checkpoint  # change the path of the model
     sam_checkpoint = args.sam_checkpoint
-    image_path = args.input_image
+    image_paths = args.input_image  # image_pathsをリストとして受け取る
     text_prompts = args.text_prompt
     output_dir = args.output_dir
     box_threshold = args.box_threshold
@@ -158,8 +158,11 @@ if __name__ == "__main__":
     # visualize raw image
     image_pil.save(os.path.join(output_dir, "raw_image.jpg"))
 
-    # run grounding dino model
-    for category, text_prompt in zip(categories, text_prompts):  # 各カテゴリーとプロンプトのペアに対してループ
+    # run grounding dino model for each category, text_prompt, and image
+    for category, text_prompt, image_path in zip(categories, text_prompts, image_paths):  # 各カテゴリー、プロンプト、画像の組み合わせに対してループ
+        # Load image
+        image = Image.open(image_path).convert("RGB")
+        # Grounding DINO model
         boxes_filt, pred_phrases = get_grounding_output(
             model, image, text_prompt, box_threshold, text_threshold, category=category, device=device, area_thr=area_threshold
         )
@@ -170,7 +173,7 @@ if __name__ == "__main__":
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         predictor.set_image(image)
 
-        size = image_pil.size
+        size = image.size
         H, W = size[1], size[0]
         for i in range(boxes_filt.size(0)):
             boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H])
@@ -194,6 +197,5 @@ if __name__ == "__main__":
             show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
         for box, label in zip(boxes_filt, pred_phrases):
             show_box(box.numpy(), plt.gca(), label)
-    plt.axis('off')
-    plt.savefig(os.path.join(output_dir, "grounded_sam_output.jpg"), bbox_inches="tight")
-
+        plt.axis('off')
+        plt.savefig(os.path.join(output_dir, "grounded_sam_output_{}.jpg".format(image_path)), bbox_inches="tight")  # output file name is unique for each image
